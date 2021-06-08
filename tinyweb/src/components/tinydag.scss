@@ -1,0 +1,124 @@
+$bg: #f5f6f7;
+#root {
+    background: $bg;
+    width: 100vw;
+    height: 100vh;
+}
+.GraphCard  {
+    background: #fff;
+    border-radius: 4px;
+    /* border: #d59cf5 solid 2px; */
+    width: 100%;
+    height: 50px;
+    cursor: pointer;
+    
+    margin-bottom: 20px;
+    box-shadow: 5px 5px 5px #bbb9;
+    &:hover {
+        background: #d59cf555;
+    }
+    .state {
+        background: #d5f2d4;
+        width: 6px;
+        height: 100%;
+        float: left;
+        display: inline-block;
+        // position: absolute;
+        left: 0px;
+        /* bottom: 2px; */
+        border-radius: 4px 0px 0px 4px;
+        &.waiting {
+            background: #3727e6;
+        }
+        &.running {
+            background: #42bd94;
+        }
+        &.failure {
+            background: #cc6f1b;
+        }
+        &.success {
+            background: #d59cf555;
+        }
+        // box-sizing: content-box;
+        
+    }
+    .text {
+        float: left;
+        padding-left: 15px;
+    }
+}
+.TinyDagContainer {
+    // width: 100% !important;
+    // height: 100% !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    background: $bg;
+    .var {
+        width: 100%;
+        height: 100%;
+        cursor: auto;
+        .container {
+            box-sizing: content-box;
+            width: 28px;
+            height: 28px;
+            margin: auto;
+            background: #fff;
+            border-radius: 3px;
+            border: #f8a8b5 solid 2px;
+            font-weight: 600;
+            line-height: 28px;
+            cursor: pointer;
+            text-align: center;
+            &:hover {
+                background: #f8a8b555;
+            }
+        }
+    }
+
+    .varProduct {
+        width: 100%;
+        height: 100%;
+        cursor: auto;
+        .container {
+            box-sizing: content-box;
+            width: 28px;
+            height: 28px;
+            margin: auto;
+            background: #fff;
+            border-radius: 3px;
+            border: #a8b5f8 solid 2px;
+            cursor: pointer;
+            font-weight: 600;
+            line-height: 28px;
+            cursor: pointer;
+
+            &:hover {
+                background: #a8b5f855;
+            }
+        }
+    }
+    .function {
+        background: #fff;
+        border-radius: 8px;
+        /* border: #d59cf5 solid 2px; */
+        width: 100%;
+        height: 100%;
+        cursor: pointer;
+        padding-left: 10px;
+        box-shadow: 5px 5px 5px #bbb9;
+        // box-sizing: content-box;
+        &:hover {
+            background: #d59cf555;
+        }
+        .state {
+            background: #d5f2d4;
+            width: 6px;
+            height: 100%;
+            display: inline-block;
+            position: absolute;
+            left: 0px;
+            /* bottom: 2px; */
+            border-radius: 6px 0px 0px 6px;
+        }
+    }
+}
