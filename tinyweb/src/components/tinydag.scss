@@ -89,7 +89,7 @@ $bg: #f5f6f7;
             &.Success {
                 border-color: #42bd94;
             }
-            &.Failure {
+            &.Failure, &.lock {
                 border-color: pink;
             }
             &.wait {

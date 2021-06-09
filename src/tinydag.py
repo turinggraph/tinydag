@@ -35,7 +35,7 @@ class Logger:
         assert type(message) == dict
         assert len(_type) > 0
         message.update({"type": _type})
-
+        # print(json.dumps(message))
         self.logger.info(json.dumps(message))
 
 
@@ -47,25 +47,32 @@ class Message(object):
         self.q = queue.Queue(1) if q is None else q
         self.name = name
         self.callback = callback
+        self.is_maybe_lock = False
+        self.value = "undefined"
+        self.lock = threading.Lock()
+
+    def maybe_lock(self):
+        self.is_maybe_lock = True
 
     def put(self, var):
-        self.callback(
-            {
-                "name": self.name,
-                "stage": "put",
-                "state": "wait",
-                "value": str(var),
-            }
-        )
-        self.q.put(var)
-        self.callback(
-            {
-                "name": self.name,
-                "stage": "put",
-                "state": "finish",
-                "value": str(var),
-            }
-        )
+        if self.value == "undefined":
+            self.callback(
+                {
+                    "name": self.name,
+                    "stage": "put",
+                    "state": "wait",
+                    "value": str(var),
+                }
+            )
+            self.q.put(var)
+            self.callback(
+                {
+                    "name": self.name,
+                    "stage": "put",
+                    "state": "finish",
+                    "value": str(var),
+                }
+            )
 
     def get(self):
         self.callback(
@@ -76,7 +83,15 @@ class Message(object):
                 "value": "unknown",
             }
         )
-        r = self.q.get()
+        if self.is_maybe_lock:
+            self.callback({"name": self.name, "stage": "get", "state": "lock"})
+        # cache value get again
+        with self.lock:
+            if self.value != "undefined":
+                r = self.value
+            else:
+                r = self.q.get()
+                self.value = r
         self.callback(
             {
                 "name": self.name,
@@ -96,7 +111,7 @@ class MessageGateway(object):
         self.router = defaultdict(
             self.RouteRecord
         )  # same name message transformer
-        self.nat = {}  # outter -> inner message transformer
+        # self.nat = {}  # outter -> inner message transformer
         self.threadpool = threadpool
 
     class RouteRecord(object):
@@ -132,7 +147,26 @@ class MessageGateway(object):
     #         print("CALLBACK")
     #         print(status.result())
 
+    def precheck(self):
+        """
+        对存在死锁可能的信号量做预检查
+        """
+        for message, record in self.router.items():
+            # print(record.product is not None and len(record.consumes) > 0, record.product, record.consumes)
+            if record.product is None:
+                print(
+                    "Message {} without product, Maybe queue lock later!!!".format(
+                        message
+                    )
+                )
+                for consum in record.consumes:
+                    consum.maybe_lock()
+            # assert record.product is not None, print("Message {} without product, Maybe queue lock later!!!".format(message))
+
+        pass
+
     def listen(self):
+        self.precheck()
         for message, record in self.router.items():
             self.threadpool.submit(
                 MessageGateway.broadcast, message, record
@@ -151,6 +185,7 @@ class Variable(object):
         self.var = var
 
     def value(self):
+        # cache value in variable
         if isinstance(self.var, (Message, queue.Queue)):
             return self.var.get()
         else:
@@ -351,6 +386,7 @@ class Task(GraphVizMixin):
             *self.args,
             **self.kwargs
         ).add_done_callback(Task.execute_callback)
+
         return message if future else message.get()
         #         print("MM:", msg.get())
 
@@ -561,7 +597,7 @@ import random
 
 def wait(fun, duration=None):
     if duration is None:
-        duration = random.randint(5, 15)
+        duration = random.randint(1, 2)
 
     def wrapper(*args, **kwargs):
         time.sleep(duration)
@@ -571,6 +607,15 @@ def wait(fun, duration=None):
     return wrapper
 
 
+"""
+TODO:
+1. 语法检查
+2. 死锁状态预先检测 * 
+3. 内嵌层级过高检测 
+4. 中间变量多次引用检测 * cache return [x], 上下文如果不一致还是会存在问题, 如果上下文不一致, 使用auto-clone模式
+6. 进程池复用
+7. 非主干路径忽略
+"""
 if __name__ == "__main__":
     httpd = socketserver.TCPServer(("", 8900), ServerHandler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -581,27 +626,18 @@ if __name__ == "__main__":
     # (1 + 20) * (12 + (1+20) )
     subdag = DAG(
         {
-            "sub": (wait(sub), 12, "$a"),
+            "sub": Task(wait(sub), 12, "$a"),
             "div": (wait(truediv), 2, "$b"),
             "mul": EndTask(wait(mul), "$div", "$sub"),
         }
     )(a="$add", b="$add")
-    # subdag2 = DAG(
-    #             {
-    #                 "sub": (sub, 12, "$a"),
-    #                 "div": (truediv, 2, "$b"),
-    #                 "mul": EndTask(mul, "$div", "$sub"),
-    #             }
-    #         )(a="$add", b="$add")
     dag = DAG(
         {
             "add": (wait(add), 1, "$a"),
             "sub": subdag,
             "mul": EndTask(wait(mul), "$add", "$sub"),
         }
-    )(
-        a=20, b=3, c=10
-    )  # .execute(pool).get()
+    )(a=20, b=3, c=10)
 
     # dag.visualize().render("test.json", view=False, format="json0")
     dag.visualize().render("aa.dot", view=False, format="dot")
@@ -611,27 +647,3 @@ if __name__ == "__main__":
     logger.log("InitSchema", dag.visualize().json())
     with ThreadPoolExecutor(20) as pool:
         print(dag.execute(pool).get())
-
-    # time.sleep(100)
-
-    # Handler = http.server.SimpleHTTPRequestHandler
-
-
-# PRODUCT {'_type': 'variableProduct', '_id': '<__main__.DAG object at 0x7f6e2ed19210>sub', '_name': 'sub'}
-# PRODUCT {'_type': 'variableProduct', '_id': '<__main__.DAG object at 0x7f6e2ed19210>div', '_name': 'div'}
-# PRODUCT {'_type': 'variableProduct', '_id': '<__main__.DAG object at 0x7f6e2ed19210>mul', '_name': 'mul'}
-# PRODUCT {'_type': 'variableProduct', '_id': '<__main__.DAG object at 0x7f6e2ed19510>add', '_name': 'add'}
-# PRODUCT {'_type': 'variableProduct', '_id': '<__main__.DAG object at 0x7f6e2ed19510>sub', '_name': 'sub'}
-# PRODUCT {'_type': 'variableProduct', '_id': '<__main__.DAG object at 0x7f6e2ed19510>mul', '_name': 'mul'}
-
-
-# VARIABLE {'_type': 'variable', '_id': '<__main__.DAG object at 0x7f6e2ed19210>a', '_name': 'a'}
-# VARIABLE {'_type': 'variable', '_id': '<__main__.DAG object at 0x7f6e2ed19210>b', '_name': 'b'}
-# VARIABLE {'_type': 'variable', '_id': '<__main__.DAG object at 0x7f6e2ed19210>div', '_name': 'div'}
-# VARIABLE {'_type': 'variable', '_id': '<__main__.DAG object at 0x7f6e2ed19210>sub', '_name': 'sub'}
-# VARIABLE {'_type': 'variable', '_id': '<__main__.DAG object at 0x7f6e2ed19510>a', '_name': 'a'}
-# VARIABLE {'_type': 'variable', '_id': '<__main__.DAG object at 0x7f6e2ed19510>add', '_name': 'add'}
-# VARIABLE {'_type': 'variable', '_id': '<__main__.DAG object at 0x7f6e2ed19510>add', '_name': 'add'}
-# VARIABLE {'_type': 'variable', '_id': '<__main__.DAG object at 0x7f6e2ed19510>add', '_name': 'add'}
-# VARIABLE {'_type': 'variable', '_id': '<__main__.DAG object at 0x7f6e2ed19510>sub', '_name': 'sub'}
-# print(inspect.getdoc(mul))
