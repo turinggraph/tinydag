@@ -6,6 +6,40 @@ import time
 from itertools import chain
 from graphviz import Digraph
 import json
+import logging
+
+# logging.basicConfig(
+#     level=logging.DEBUG,  # 控制台打印的日志级别
+#     filename="src/log/dag_test.log",
+#     filemode="w",  ##模式，有w和a，w就是写模式，每次都会重新写日志，覆盖之前的日志
+#     # a是追加模式，默认如果不写的话，就是追加模式
+#     format="%(asctime)s - %(pathname)s[line:%(lineno)d] - %(levelname)s: %(message)s"
+#     # 日志格式
+# )
+
+
+class Logger:
+    def __init__(self, *args, **kwargs):
+        logger = logging.getLogger(__name__)
+        logger.setLevel(level=logging.INFO)
+        handler = logging.FileHandler("src/log/dag_test.log", mode="w")
+        handler.setLevel(logging.INFO)
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        self.logger = logger
+
+    def log(self, _type, message):
+        assert type(message) == dict
+        assert len(_type) > 0
+        message.update({"type": _type})
+
+        self.logger.info(json.dumps(message))
+
+
+logger = Logger()
 
 
 class Message(object):
@@ -15,14 +49,42 @@ class Message(object):
         self.callback = callback
 
     def put(self, var):
-        self.callback({"name": self.name, "stage": "put", "state": "wait"})
+        self.callback(
+            {
+                "name": self.name,
+                "stage": "put",
+                "state": "wait",
+                "value": str(var),
+            }
+        )
         self.q.put(var)
-        self.callback({"name": self.name, "stage": "put", "state": "finish"})
+        self.callback(
+            {
+                "name": self.name,
+                "stage": "put",
+                "state": "finish",
+                "value": str(var),
+            }
+        )
 
     def get(self):
-        self.callback({"name": self.name, "stage": "get", "state": "wait"})
+        self.callback(
+            {
+                "name": self.name,
+                "stage": "get",
+                "state": "wait",
+                "value": "unknown",
+            }
+        )
         r = self.q.get()
-        self.callback({"name": self.name, "stage": "get", "state": "finish"})
+        self.callback(
+            {
+                "name": self.name,
+                "stage": "get",
+                "state": "finish",
+                "value": str(r),
+            }
+        )
         return r
 
     def rename(self, name):
@@ -189,6 +251,10 @@ class Task(GraphVizMixin):
     def name(self):
         return self.func.__name__
 
+    @property
+    def id(self):
+        return str(self) + self.name
+
     def visualize(self, graph=None):
         graph.node(self.name)
         return graph
@@ -227,9 +293,9 @@ class Task(GraphVizMixin):
 
     @staticmethod
     def args_values(*args):
-        return (
+        return [
             arg.value() if isinstance(arg, Variable) else arg for arg in args
-        )
+        ]
 
     @staticmethod
     def kwargs_values(**kwargs):
@@ -239,18 +305,33 @@ class Task(GraphVizMixin):
         }
 
     @staticmethod
-    def execute_daemon(func, message, *args, **kwargs):
+    def execute_daemon(func, message, _id, *args, **kwargs):
         #         print("Execute Daemon")
         #         print(args, kwargs)
         # STATE: Running
-        result = func(*Task.args_values(*args), **Task.kwargs_values(**kwargs))
-
+        logger.log("UpdateTaskState", {"id": _id, "state": "wait"})
+        _args, _kwargs = Task.args_values(*args), Task.kwargs_values(**kwargs)
+        logger.log("UpdateTaskState", {"id": _id, "state": "Running"})
+        stime = time.time()
+        result = func(*_args, **_kwargs)
+        logger.log(
+            "UpdateTaskState",
+            {
+                "result": result,
+                "id": _id,
+                "state": "Success",
+                "delta": "%.3f" % (time.time() - stime),
+            },
+        )
         message.put(result)
+
         # STATE: Return result
         return result
 
     @staticmethod
-    def execute_callback(fu):
+    def execute_callback(future):
+        # logger.log("", {"STATE": "Finish"})
+
         # STATE: Finish Success or Failure
 
         #         print("execute_callback", fu.result())
@@ -261,8 +342,14 @@ class Task(GraphVizMixin):
         if message is None:
             message = Message("task_{}".format(time.time()))
         # STATE: Submitted, waiting for running
+        logger.log("UpdateTaskState", {"id": self.id, "state": "Submit"})
         pool.submit(
-            Task.execute_daemon, self.func, message, *self.args, **self.kwargs
+            Task.execute_daemon,
+            self.func,
+            message,
+            self.id,
+            *self.args,
+            **self.kwargs
         ).add_done_callback(Task.execute_callback)
         return message if future else message.get()
         #         print("MM:", msg.get())
@@ -280,6 +367,10 @@ class EndTask(Task):
         super(EndTask, self).__init__(*args, **kwargs)
 
 
+def aaa(*args, **kwargs):
+    pass
+
+
 class DAG(Task):
     def __init__(self, config, *args, **kwargs):  # init config
         super(DAG, self).__init__(self.func, *args, **kwargs)
@@ -290,6 +381,14 @@ class DAG(Task):
         #         self.gateway = MessageGateway()
         self.tasks = []
 
+    def message(self, name):
+        def _c(r):
+            res = {"context": str(self)}
+            res.update(r)
+            logger.log("VariableStateUpdate", res)
+
+        return Message(name, callback=_c)
+
     # func proxy run in thread
     def func(self, *args, **kwargs):
         """
@@ -298,35 +397,41 @@ class DAG(Task):
         #         print("DAG fun")
         end_task_product_message = None
         for product_message_name, product_task in self.config.items():
-            product_message = Message(product_message_name)
+            product_message = self.message(product_message_name)
             if isinstance(product_task, EndTask):
                 end_task_product_message = product_message
             self.gateway.register(products=[product_message])
             for var in product_task.variables():
-                consume_message = Message(var.consume())
-                var.assign(consume_message)
+                consume_message = self.message(var.consume())
+                var.assign(consume_message)  # key action
                 self.gateway.register(consumes=[consume_message])
             product_task.execute(self.pool, product_message)
         # Fake message for args, kwargs
         for i, arg in enumerate(args):
-            msg = Message(str(i))
+            msg = self.message(str(i))
             msg.put(arg)
             self.gateway.register(products=[msg])
 
         for k, arg in kwargs.items():
-            msg = Message(k)
+            msg = self.message(k)
             msg.put(arg)
             self.gateway.register(products=[msg])
-        result_message = Message(end_task_product_message.name)
+        result_message = self.message(end_task_product_message.name)
         self.gateway.register(consumes=[result_message])
         self.gateway.listen()
         return result_message.get()
 
+    # @property
+    # def endname(self):
+    #     for k, task in self.config.items():
+    #         if isinstance(task, EndTask):
+    #             return k
+
     @property
-    def endname(self):
+    def endtask(self):
         for k, task in self.config.items():
             if isinstance(task, EndTask):
-                return k
+                return task
 
     def visualize(self, graph=None):
         if graph is None:
@@ -383,7 +488,9 @@ class DAG(Task):
             if isinstance(product_task, DAG):
 
                 graph.edge(
-                    str(product_task) + product_task.endname,
+                    str(product_task)
+                    + product_task.endtask.name,  # message name
+                    # product_task.endtask.id,
                     str(self) + product_message_name,
                 )
                 for (
@@ -398,7 +505,7 @@ class DAG(Task):
                     )
             else:
                 graph.edge(
-                    str(product_task) + product_task.name,
+                    product_task.id,
                     str(self) + product_message_name,
                 )
             # NODE[variable]
@@ -416,7 +523,7 @@ class DAG(Task):
                 if not isinstance(product_task, DAG):
                     graph.edge(
                         str(self) + var.consume(),
-                        str(product_task) + product_task.name,
+                        product_task.id,
                     )
 
         return graph
@@ -429,15 +536,16 @@ class DAG(Task):
     def all_tasks_listen(self):
         pass
 
+
 import http.server
 import socketserver
+
 # import socketserver
 
 
 class ServerHandler(http.server.SimpleHTTPRequestHandler):
-
     def do_GET(self):
-        self.protocol_version = 'HTTP/1.1'
+        self.protocol_version = "HTTP/1.1"
         self._headers = self.headers
         self._url = self.path
         self.send_response(200)
@@ -445,26 +553,51 @@ class ServerHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b"{'a':3}")
 
+
 import threading
+import time
+import random
+
+
+def wait(fun, duration=None):
+    if duration is None:
+        duration = random.randint(5, 15)
+
+    def wrapper(*args, **kwargs):
+        time.sleep(duration)
+        return fun(*args, **kwargs)
+
+    wrapper.__name__ = fun.__name__
+    return wrapper
+
+
 if __name__ == "__main__":
-    httpd = socketserver.TCPServer(("", 8900), ServerHandler) 
+    httpd = socketserver.TCPServer(("", 8900), ServerHandler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
 
     from operator import add, sub, mul, truediv
 
     # (1 + 20) * (12 + (1+20) )
+    subdag = DAG(
+        {
+            "sub": (wait(sub), 12, "$a"),
+            "div": (wait(truediv), 2, "$b"),
+            "mul": EndTask(wait(mul), "$div", "$sub"),
+        }
+    )(a="$add", b="$add")
+    # subdag2 = DAG(
+    #             {
+    #                 "sub": (sub, 12, "$a"),
+    #                 "div": (truediv, 2, "$b"),
+    #                 "mul": EndTask(mul, "$div", "$sub"),
+    #             }
+    #         )(a="$add", b="$add")
     dag = DAG(
         {
-            "add": (add, 1, "$a"),
-            "sub": DAG(
-                {
-                    "sub": (sub, 12, "$a"),
-                    "div": (truediv, 2, "$b"),
-                    "mul": EndTask(mul, "$div", "$sub"),
-                }
-            )(a="$add", b="$add"),
-            "mul": EndTask(mul, "$add", "$sub"),
+            "add": (wait(add), 1, "$a"),
+            "sub": subdag,
+            "mul": EndTask(wait(mul), "$add", "$sub"),
         }
     )(
         a=20, b=3, c=10
@@ -475,16 +608,14 @@ if __name__ == "__main__":
     open("tinyweb/public/t3.json", "w").write(
         json.dumps(dag.visualize().json())
     )
+    logger.log("InitSchema", dag.visualize().json())
     with ThreadPoolExecutor(20) as pool:
         print(dag.execute(pool).get())
 
-    time.sleep(100)
-
-
+    # time.sleep(100)
 
     # Handler = http.server.SimpleHTTPRequestHandler
 
-   
 
 # PRODUCT {'_type': 'variableProduct', '_id': '<__main__.DAG object at 0x7f6e2ed19210>sub', '_name': 'sub'}
 # PRODUCT {'_type': 'variableProduct', '_id': '<__main__.DAG object at 0x7f6e2ed19210>div', '_name': 'div'}

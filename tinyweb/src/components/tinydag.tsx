@@ -6,6 +6,7 @@ import { ReactShape } from '@antv/x6-react-shape';
 import '@antv/x6-react-shape';
 import { Tooltip, Popover, Button } from 'antd';
 import ReactDOM from 'react-dom';
+import { OmitProps } from 'antd/lib/transfer/ListBody';
 // const data = {
 //     "name": "cluster<__main__.DAG object at 0x7f3946f4e750>",
 //     "nodes": {
@@ -224,23 +225,29 @@ class GraphProxy {
 // Graph.unregisterReactComponent("variable");
 // Graph.unregisterReactComponent("variableProduct");
 // Graph.unregisterReactComponent("function");
-
+const State = (props) => {
+    return <Tooltip title={JSON.stringify(props.state)}><div className={"StateDot " + props.state['state']}></div></Tooltip>
+}
 const nodeComponent = {
     variable(node) {
         const data: any = node.prop('data')
+        const lastState = data.state && data.state.length > 0 ? data.state.slice(-1)[0]['state'] : ""
+        const value = data.state && data.state.length > 0 ? data.state.slice(-1)[0]['value'] : undefined
         const content = (
             <div>
                 {data._name && <p><b>Name:</b> {data._name}</p>}
                 {data._type && <p><b>Type:</b> {data._type}</p>}
                 {data._id && <p><b>ID:</b> {data._id}</p>}
-                {data.state && <p><b>State:</b> {data.state}</p>}
+                {value && <p><b>Value:</b> {value}</p>}
+                {/* {data.state && <p><b>State:</b> {JSON.stringify(data.state)}</p>} */}
+                {data.state && <div><b>State:</b> {data.state.map((s, i, arr)=>{return <State state={s} key={i}/>})}</div>}
             </div>
         );
 
         let r = (<div id={data._id}>
             <div className='var' >
                 <Popover placement="rightBottom" content={content} >
-                    <div className="container">{data._name}</div>
+                    <div className={'container ' + lastState}>{data._name}</div>
                 </Popover>
             </div></div>);
         return r;
@@ -251,10 +258,12 @@ const nodeComponent = {
     },
     function(node) {
         const data: any = node.prop('data')
+        const lastState = data.state && data.state.length > 0 ? data.state.slice(-1)[0]['state'] : ""
+        const lState = data.state && data.state.length > 0 ? data.state.slice(-1)[0] : undefined
         const content = (
             <div>
                 <p><b>Func: </b>{data._name}</p>
-                <p><b>Desc: </b>{data.func}</p>
+                {data.func && <p><b>Desc: </b>{data.func}</p>}
                 <p><b>Args:</b> {data.args}</p>
 
                 {data.sources && <p><b>Sources:</b> {data.sources}</p>}
@@ -262,11 +271,13 @@ const nodeComponent = {
                 {data.sourcefile && <p><b>File:</b> {data.sourcefile}</p>}
                 {data._type && <p><b>Type:</b> {data._type}</p>}
                 {data._id && <p><b>ID:</b> {data._id}</p>}
-                {data.state && <p><b>State:</b> {data.state}</p>}
+                {data.state && <div><b>State:</b> {data.state.map((s, i, arr)=>{return <State state={s} key={i}/>})}</div>}
+                {lState && lState['delta'] && <div><b>Delta:</b> {lState['delta']}s</div>}
+                {/* {data.state && <p><b>State:</b> {JSON.stringify(data.state)}</p>} */}
             </div>
         );
         return (<Popover placement="rightBottom" content={content} >
-            <div className='function' ><span className="state"></span>{data._name}|{data._type}|{data._id}</div></Popover>)
+            <div className='function' ><span className={"state " + lastState}></span><span style={{fontWeight: 700}}>{data._name}{data.args}</span><br/>@{data.module}</div></Popover>)
     }
 }
 
@@ -275,8 +286,11 @@ const nodeComponent = {
 // }
 const TinyDag = (props: any) => {
     const container = React.useRef<HTMLDivElement>(null);
-    const [ graphData, setGraphData ] = React.useState<Object>(null);
-    
+    const [graphData, setGraphData] = React.useState<Object>(null);
+    const [variableState, setVariableState] = React.useState<Object>(null);
+    const [taskState, setTaskState] = React.useState<Object>(null);
+    const [graphInstance, setGraphInstance] = React.useState<Object>(null);
+
     function getEdgeTerminalKey(obj) {
         if (typeof (obj) == "object") {
             return obj['cell'];
@@ -412,7 +426,7 @@ const TinyDag = (props: any) => {
             // }
             let node = graph.addNode({
                 id: data.nodes[v]['name'],
-                height: isVariable ? 32 : 75,
+                height: isVariable ? 32 : 50,
                 width: 280,
                 label: data.nodes[v]['label'],
                 zIndex: 10,
@@ -497,6 +511,8 @@ const TinyDag = (props: any) => {
         data['edges'].forEach(({ label, tail_name, head_name }) => {
             let tail_key = tail_name;
             let head_key = head_name;
+            console.log(NODE2PORT, head_name);
+            console.log(NODE2PORT[head_name]);
             let targetMark: any = NODE2PORT[head_name]['_type'] == 'function' ? {
                 name: 'block',
                 args: {
@@ -538,16 +554,42 @@ const TinyDag = (props: any) => {
         },
     }
     console.log("A");
+    const updateState = () => {
+        fetch("http://192.168.6.171:5000/state/test").then(res => res.json()).then(data => {
+            setVariableState(data['variable']);
+            setTaskState(data['task']);
+        });
+        setTimeout(updateState, 1000);
+    }
     React.useEffect(() => {
 
         console.log("V");
-        fetch("./t3.json").then(res => res.json()).then(data=>{
-            setGraphData(data);
-            console.log("C");
+        fetch("http://192.168.6.171:5000/schema/test").then(res => res.json()).then(data => {
+            setGraphData(data[0]);
         });
+        updateState();
     }, [])
     React.useEffect(() => {
-      
+        if (graphInstance) {
+            (graphInstance as any).getNodes().forEach((n, i, arr) => {
+                if (taskState) {
+                    if (n.prop("data")['_type'] == 'function') {
+                        n.prop("data", { ...n.prop("data"), state: taskState[n['id']] });
+                    }
+                }
+
+                if (variableState) {
+                    if (n.prop("data")['_type'] == 'variable') {
+                        n.prop("data", { ...n.prop("data"), state: variableState[n['id']] });
+                    }
+                }
+
+            });
+        }
+
+    }, [graphInstance, variableState, taskState]);
+    React.useEffect(() => {
+
         if (container && container.current && graphData) {
             // 画布
             const graph = new Graph({
@@ -618,7 +660,7 @@ const TinyDag = (props: any) => {
                 type: 'dagre',
                 rankdir: 'TB',
                 align: 'UR',
-                ranksep: 16,
+                ranksep: 12,
                 nodesep: 100,
             })
             // model = layoutSonsOf(dagreLayout, model, "cluster<__main__.DAG object at 0x7feaa8290090>")
@@ -703,7 +745,7 @@ const TinyDag = (props: any) => {
                 // console.log(n);
                 nodes[n['id']] = graph.addNode(n);
             });
-            
+
             model.edges.forEach((e, i, ns) => {
                 graph.addEdge(e);
             });
@@ -713,10 +755,11 @@ const TinyDag = (props: any) => {
             //     nodes[n['id']] = graph.addNode(n);
             // });
             const updateData = (id, data) => {
-                nodes[id].prop("data", {...nodes[id].prop("data"), ...data});
+                nodes[id].prop("data", { ...nodes[id].prop("data"), ...data });
             };
             (window as any).updateData = updateData;
             (window as any).graph = graph;
+            setGraphInstance(graph);
             // graph.fromJSON(model);
             // graph.fromJSON(model);
             // graph.fromJSON(model);
@@ -747,7 +790,6 @@ const TinyDag = (props: any) => {
     }
     return <div>
         <div ref={container} className="TinyDagContainer"></div>
-        <button style={{ position: 'absolute', top: '0px' }} onClick={() => { console.log("AA"); aa() }}>AAA</button>
     </div>
 
 }
