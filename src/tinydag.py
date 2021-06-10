@@ -1,7 +1,7 @@
 import queue
 from typing import List
 from collections import namedtuple, defaultdict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 import time
 from itertools import chain
 from graphviz import Digraph
@@ -403,8 +403,25 @@ class EndTask(Task):
         super(EndTask, self).__init__(*args, **kwargs)
 
 
-def aaa(*args, **kwargs):
-    pass
+class MultiProcessTask(Task):
+    """
+    处理多进程任务
+    """
+
+    def __init__(self, func, *args, **kwargs):
+        super(MultiProcessTask, self).__init__(self.func, *args, **kwargs)
+        self._origin_func = func
+
+    def func(self, *args, **kwargs):
+        print("AA")
+        with ProcessPoolExecutor() as pool:
+            print("BB")
+            futures = [pool.submit(self._origin_func, *arg) for arg in args[0]]
+            print("CC")
+            pdb.set_trace()
+            r = [f.result() for f in futures]
+            print("DD")
+            return r
 
 
 class DAG(Task):
@@ -617,33 +634,35 @@ TODO:
 7. 非主干路径忽略
 """
 if __name__ == "__main__":
-    httpd = socketserver.TCPServer(("", 8900), ServerHandler)
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
+    # httpd = socketserver.TCPServer(("", 8900), ServerHandler)
+    # thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    # thread.start()
 
     from operator import add, sub, mul, truediv
 
-    # (1 + 20) * (12 + (1+20) )
-    subdag = DAG(
-        {
-            "sub": Task(wait(sub), 12, "$a"),
-            "div": (wait(truediv), 2, "$b"),
-            "mul": EndTask(wait(mul), "$div", "$sub"),
-        }
-    )(a="$add", b="$add")
-    dag = DAG(
-        {
-            "add": (wait(add), 1, "$a"),
-            "sub": subdag,
-            "mul": EndTask(wait(mul), "$add", "$sub"),
-        }
-    )(a=20, b=3, c=10)
+    # # (1 + 20) * (12 + (1+20) )
+    # subdag = DAG(
+    #     {
+    #         "sub": Task(wait(sub), 12, "$a"),
+    #         "div": (wait(truediv), 2, "$b"),
+    #         "mul": EndTask(wait(mul), "$div", "$sub"),
+    #     }
+    # )(a="$add", b="$add")
+    # dag = DAG(
+    #     {
+    #         "add": (wait(add), 1, "$a"),
+    #         "sub": subdag,
+    #         "mul": EndTask(wait(mul), "$add", "$sub"),
+    #     }
+    # )(a=20, b=3, c=10)
 
-    # dag.visualize().render("test.json", view=False, format="json0")
-    dag.visualize().render("aa.dot", view=False, format="dot")
-    open("tinyweb/public/t3.json", "w").write(
-        json.dumps(dag.visualize().json())
-    )
-    logger.log("InitSchema", dag.visualize().json())
+    # # dag.visualize().render("test.json", view=False, format="json0")
+    # dag.visualize().render("aa.dot", view=False, format="dot")
+    # open("tinyweb/public/t3.json", "w").write(
+    #     json.dumps(dag.visualize().json())
+    # )
+    # logger.log("InitSchema", dag.visualize().json())
+    # with ThreadPoolExecutor(20) as pool:
+    #     print(dag.execute(pool).get())
     with ThreadPoolExecutor(20) as pool:
-        print(dag.execute(pool).get())
+        MultiProcessTask(add, [(i, i+2) for i in range(20)]).execute(pool).get()
