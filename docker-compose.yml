@@ -1,0 +1,42 @@
+# yaml 配置实例
+version: '3'
+services:
+  tinydag:
+    image: python:3.10-rc-alpine3.13
+    volumes:
+      - ./src/:/opt/tinydag
+    command:
+      - sh 
+      - -c
+      - |
+        cd /opt/tinydag
+        python3 -m pip install graphviz -i https://pypi.tuna.tsinghua.edu.cn/simple
+        python3 tinydag.py 10 20
+  logger:
+    image: python:3.10-rc-alpine3.13
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./src/:/opt/tinydag
+    command:
+      - sh 
+      - -c
+      - |
+        cd /opt/tinydag
+        python3 -m pip install flask flask_cors -i https://pypi.tuna.tsinghua.edu.cn/simple
+        python3 logger.py
+  tinyweb:
+    image: node:14-alpine3.12
+    ports:
+      - "13000:3000"
+    volumes:
+      - ./tinyweb:/opt/tinyweb
+    command:
+      - sh 
+      - -c
+      - |
+        cd /opt/tinyweb
+        yarn config set registry https://registry.npm.taobao.org/
+        yarn
+        npm rebuild node-sass
+        yarn start

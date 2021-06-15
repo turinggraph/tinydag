@@ -560,9 +560,8 @@ const TinyDag = (props: any) => {
             },
         },
     }
-    console.log("A");
     const updateState = () => {
-        fetch("http://192.168.6.171:5000/state/test").then(res => res.json()).then(data => {
+        fetch(`http://${window.location.hostname}:5000/state/test`).then(res => res.json()).then(data => {
             setVariableState(data['variable']);
             setTaskState(data['task']);
         });
@@ -570,8 +569,7 @@ const TinyDag = (props: any) => {
     }
     React.useEffect(() => {
 
-        console.log("V");
-        fetch("http://192.168.6.171:5000/schema/test").then(res => res.json()).then(data => {
+        fetch(`http://${window.location.hostname}:5000/schema/test`).then(res => res.json()).then(data => {
             setGraphData(data[0]);
         });
         updateState();
