@@ -268,6 +268,7 @@ class Task(GraphVizMixin):
     def __init__(self, func, *args, **kwargs):
 
         self.func = func
+        self.funcana = self.func
         self.args = list(args)
         self.kwargs = kwargs
         self.variable_check()
@@ -284,7 +285,7 @@ class Task(GraphVizMixin):
 
     @property
     def name(self):
-        return self.func.__name__
+        return self.funcana.__name__
 
     @property
     def id(self):
@@ -408,20 +409,21 @@ class MultiProcessTask(Task):
     处理多进程任务
     """
 
-    def __init__(self, func, *args, **kwargs):
-        super(MultiProcessTask, self).__init__(self.func, *args, **kwargs)
-        self._origin_func = func
+    def __init__(self, processpool, func, args, *_args, **kwargs):
+        super(MultiProcessTask, self).__init__(
+            self.func, args, *_args, **kwargs
+        )
+        self.origin_func = func
+        self.funcana = self.origin_func
+        self.processpool = processpool
 
     def func(self, *args, **kwargs):
-        print("AA")
-        with ProcessPoolExecutor() as pool:
-            print("BB")
-            futures = [pool.submit(self._origin_func, *arg) for arg in args[0]]
-            print("CC")
-            pdb.set_trace()
-            r = [f.result() for f in futures]
-            print("DD")
-            return r
+        # with ProcessPoolExecutor() as pool:
+        futures = [
+            self.processpool.submit(self.origin_func, *arg) for arg in args[0]
+        ]
+        r = [f.result() for f in futures]
+        return r
 
 
 class DAG(Task):
@@ -499,17 +501,17 @@ class DAG(Task):
                 # task.visualize(graph)
 
                 try:
-                    sources = str(inspect.getsource(task.func))
+                    sources = str(inspect.getsource(task.funcana))
                 except TypeError:
                     sources = ""
                     pass
                 try:
-                    module = str(inspect.getmodule(task.func))
+                    module = str(inspect.getmodule(task.funcana))
                 except TypeError:
                     module = ""
                     pass
                 try:
-                    sourcefile = str(inspect.getsourcefile(task.func))
+                    sourcefile = str(inspect.getsourcefile(task.funcana))
                 except TypeError:
                     sourcefile = ""
                     pass
@@ -520,8 +522,9 @@ class DAG(Task):
                         "_type": "function",
                         "_id": str(task) + task.name,
                         "_name": task.name,
-                        "func": inspect.getdoc(task.func),
-                        "args": str(inspect.signature(task.func)),
+                        "func": inspect.getdoc(task.funcana),
+                        "args": str(inspect.signature(task.funcana)),
+                        "tasktype": type(task).__name__,
                         "sources": sources,
                         "module": module,
                         "sourcefile": sourcefile,
@@ -640,29 +643,35 @@ if __name__ == "__main__":
 
     from operator import add, sub, mul, truediv
 
-    # # (1 + 20) * (12 + (1+20) )
-    # subdag = DAG(
-    #     {
-    #         "sub": Task(wait(sub), 12, "$a"),
-    #         "div": (wait(truediv), 2, "$b"),
-    #         "mul": EndTask(wait(mul), "$div", "$sub"),
-    #     }
-    # )(a="$add", b="$add")
-    # dag = DAG(
-    #     {
-    #         "add": (wait(add), 1, "$a"),
-    #         "sub": subdag,
-    #         "mul": EndTask(wait(mul), "$add", "$sub"),
-    #     }
-    # )(a=20, b=3, c=10)
+    processpool = ProcessPoolExecutor()
+    # (1 + 20) * (12 + (1+20) )
+    subdag = DAG(
+        {
+            "elements": MultiProcessTask(
+                processpool, add, [(i, i + 2) for i in range(20)]
+            ),
+            "elesum": (sum, "$elements"),
+            "sub": Task(wait(sub), "$a", "$elesum"),
+            "div": (wait(truediv), 2, "$b"),
+            "mul": EndTask(wait(mul), "$div", "$sub"),
+        }
+    )(a="$add", b="$add")
+    dag = DAG(
+        {
+            "add": (wait(add), 1, "$a"),
+            "sub": subdag,
+            "mul": EndTask(wait(mul), "$add", "$sub"),
+        }
+    )(a=20, b=3, c=10)
 
-    # # dag.visualize().render("test.json", view=False, format="json0")
-    # dag.visualize().render("aa.dot", view=False, format="dot")
-    # open("tinyweb/public/t3.json", "w").write(
-    #     json.dumps(dag.visualize().json())
-    # )
-    # logger.log("InitSchema", dag.visualize().json())
-    # with ThreadPoolExecutor(20) as pool:
-    #     print(dag.execute(pool).get())
+    # dag.visualize().render("test.json", view=False, format="json0")
+    dag.visualize().render("aa.dot", view=False, format="dot")
+    open("tinyweb/public/t3.json", "w").write(
+        json.dumps(dag.visualize().json())
+    )
+    logger.log("InitSchema", dag.visualize().json())
     with ThreadPoolExecutor(20) as pool:
-        MultiProcessTask(add, [(i, i+2) for i in range(20)]).execute(pool).get()
+        print(dag.execute(pool).get())
+    # with ProcessPoolExecutor() as processpool:
+    #     with ThreadPoolExecutor(20) as threadpool:
+    #         print(MultiProcessTask(processpool, add, [(i, i+2) for i in range(20)]).execute(threadpool).get())

@@ -7,6 +7,8 @@ import '@antv/x6-react-shape';
 import { Tooltip, Popover, Button } from 'antd';
 import ReactDOM from 'react-dom';
 import { OmitProps } from 'antd/lib/transfer/ListBody';
+import { AlignRightOutlined, MinusCircleOutlined } from '@ant-design/icons';
+
 // const data = {
 //     "name": "cluster<__main__.DAG object at 0x7f3946f4e750>",
 //     "nodes": {
@@ -240,7 +242,7 @@ const nodeComponent = {
                 {data._id && <p><b>ID:</b> {data._id}</p>}
                 {value && <p><b>Value:</b> {value}</p>}
                 {/* {data.state && <p><b>State:</b> {JSON.stringify(data.state)}</p>} */}
-                {data.state && <div><b>State:</b> {data.state.map((s, i, arr)=>{return <State state={s} key={i}/>})}</div>}
+                {data.state && <div><b>State:</b> {data.state.map((s, i, arr) => { return <State state={s} key={i} /> })}</div>}
             </div>
         );
 
@@ -271,13 +273,18 @@ const nodeComponent = {
                 {data.sourcefile && <p><b>File:</b> {data.sourcefile}</p>}
                 {data._type && <p><b>Type:</b> {data._type}</p>}
                 {data._id && <p><b>ID:</b> {data._id}</p>}
-                {data.state && <div><b>State:</b> {data.state.map((s, i, arr)=>{return <State state={s} key={i}/>})}</div>}
+                {data.tasktype && <p><b>Task:</b> {data.tasktype}</p>}
+                {data.state && <div><b>State:</b> {data.state.map((s, i, arr) => { return <State state={s} key={i} /> })}</div>}
                 {lState && lState['delta'] && <div><b>Delta:</b> {lState['delta']}s</div>}
                 {/* {data.state && <p><b>State:</b> {JSON.stringify(data.state)}</p>} */}
             </div>
         );
         return (<Popover placement="rightBottom" content={content} >
-            <div className='function' ><span className={"state " + lastState}></span><span style={{fontWeight: 700}}>{data._name}{data.args}</span><br/>@{data.module}</div></Popover>)
+            <div className='function' ><span className={"state " + lastState}></span>
+                <span style={{ fontWeight: 700 }}>{data._name}{data.args}
+                {data.tasktype && data.tasktype == "MultiProcessTask" && <AlignRightOutlined rotate={-90} className="TitleIcon" />}
+                {/* {data.tasktype && data.tasktype == "EndTask" && <MinusCircleOutlined className="TitleIcon" />} */}
+                </span><br />@{data.module}</div></Popover>)
     }
 }
 

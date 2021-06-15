@@ -89,7 +89,8 @@ $bg: #f5f6f7;
             &.Success {
                 border-color: #42bd94;
             }
-            &.Failure, &.lock {
+            &.Failure,
+            &.lock {
                 border-color: pink;
             }
             &.wait {
@@ -144,9 +145,12 @@ $bg: #f5f6f7;
 
         overflow: hidden;
         text-overflow: ellipsis;
-        white-space:nowrap;
+        white-space: nowrap;
 
-    
+        .TitleIcon {
+            float: right;
+            margin: 5px;
+        }
         //     overflow:hidden;
         // text-overflow:ellipsis;
         // white-space:nowrap
