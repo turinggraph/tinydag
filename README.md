@@ -4,5 +4,6 @@ Ting Directed Acycle Graph for NumpyGraph
 ```
 docker-compose up
 ```
-open browser url: http://{service_hostname}:13000
+* open link below: http://{service_hostname}:13000  
+* then have fun, enjoy it!   
 ![DAG running](static/screenshot01.png)
