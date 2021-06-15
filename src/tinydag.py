@@ -7,6 +7,7 @@ from itertools import chain
 from graphviz import Digraph
 import json
 import logging
+import sys
 
 # logging.basicConfig(
 #     level=logging.DEBUG,  # 控制台打印的日志级别
@@ -22,7 +23,7 @@ class Logger:
     def __init__(self, *args, **kwargs):
         logger = logging.getLogger(__name__)
         logger.setLevel(level=logging.INFO)
-        handler = logging.FileHandler("src/log/dag_test.log", mode="w")
+        handler = logging.FileHandler("log/dag_test.log", mode="w")
         handler.setLevel(logging.INFO)
         formatter = logging.Formatter(
             "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -573,31 +574,16 @@ class DAG(Task):
         pass
 
 
-import http.server
-import socketserver
-
-# import socketserver
-
-
-class ServerHandler(http.server.SimpleHTTPRequestHandler):
-    def do_GET(self):
-        self.protocol_version = "HTTP/1.1"
-        self._headers = self.headers
-        self._url = self.path
-        self.send_response(200)
-        self.send_header("Content-type", "application/json")
-        self.end_headers()
-        self.wfile.write(b"{'a':3}")
-
-
 import threading
 import time
 import random
 
+DURATION_RANDOM_MIN = 1
+DURATION_RANDOM_MAX = 2
 
 def wait(fun, duration=None):
     if duration is None:
-        duration = random.randint(1, 2)
+        duration = random.randint(DURATION_RANDOM_MIN, DURATION_RANDOM_MAX)
 
     def wrapper(*args, **kwargs):
         time.sleep(duration)
@@ -617,12 +603,11 @@ TODO:
 7. 非主干路径忽略
 """
 if __name__ == "__main__":
-    httpd = socketserver.TCPServer(("", 8900), ServerHandler)
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-
+    if len(sys.argv) > 2:
+        DURATION_RANDOM_MIN, DURATION_RANDOM_MAX = int(sys.argv[1]), int(sys.argv[2])
+    print("Wait: ({}, {})".format(DURATION_RANDOM_MIN, DURATION_RANDOM_MAX))
+        
     from operator import add, sub, mul, truediv
-
     # (1 + 20) * (12 + (1+20) )
     subdag = DAG(
         {
@@ -640,10 +625,10 @@ if __name__ == "__main__":
     )(a=20, b=3, c=10)
 
     # dag.visualize().render("test.json", view=False, format="json0")
-    dag.visualize().render("aa.dot", view=False, format="dot")
-    open("tinyweb/public/t3.json", "w").write(
-        json.dumps(dag.visualize().json())
-    )
+#     dag.visualize().render("aa.dot", view=False, format="dot")
+#     open("t3.json", "w").write(
+#         json.dumps(dag.visualize().json())
+#     )
     logger.log("InitSchema", dag.visualize().json())
     with ThreadPoolExecutor(20) as pool:
         print(dag.execute(pool).get())

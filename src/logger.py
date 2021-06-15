@@ -5,7 +5,7 @@ app = Flask(__name__)
 
 CORS(app)
 
-LOG_DIRECTORY = "src/log"
+LOG_DIRECTORY = "log"
 import json
 import glob
 import os
