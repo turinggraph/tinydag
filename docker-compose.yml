@@ -4,7 +4,7 @@ services:
   tinydag:
     image: python:3.10-rc-alpine3.13
     volumes:
-      - ../src/:/opt/tinydag
+      - ./src/:/opt/tinydag
     command:
       - sh 
       - -c
@@ -17,7 +17,7 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - ../src/:/opt/tinydag
+      - ./src/:/opt/tinydag
     command:
       - sh 
       - -c
@@ -30,7 +30,7 @@ services:
     ports:
       - "13000:3000"
     volumes:
-      - ../tinyweb:/opt/tinyweb
+      - ./tinyweb:/opt/tinyweb
     command:
       - sh 
       - -c
