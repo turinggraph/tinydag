@@ -10,6 +10,7 @@ services:
       - -c
       - |
         cd /opt/tinydag
+        mkdir log
         python3 -m pip install graphviz -i https://pypi.tuna.tsinghua.edu.cn/simple
         python3 tinydag.py 10 20
   logger:

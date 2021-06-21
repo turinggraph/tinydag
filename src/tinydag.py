@@ -8,6 +8,7 @@ from graphviz import Digraph
 import json
 import logging
 import sys
+import threading
 
 
 # logging.basicConfig(
@@ -601,29 +602,23 @@ class DAG(Task):
         pass
 
 
-import threading
-import time
-import random
+def check(argv):
+    import random, time
+    DURATION_RANDOM_MIN = 1
+    DURATION_RANDOM_MAX = 2
 
-DURATION_RANDOM_MIN = 1
-DURATION_RANDOM_MAX = 2
+    def wait(fun, duration=None):
+        if duration is None:
+            duration = random.randint(DURATION_RANDOM_MIN, DURATION_RANDOM_MAX)
 
+        def wrapper(*args, **kwargs):
+            time.sleep(duration)
+            return fun(*args, **kwargs)
 
-def wait(fun, duration=None):
-    if duration is None:
-        duration = random.randint(DURATION_RANDOM_MIN, DURATION_RANDOM_MAX)
+        wrapper.__name__ = fun.__name__
+        return wrapper
 
-    def wrapper(*args, **kwargs):
-        time.sleep(duration)
-        return fun(*args, **kwargs)
-
-    wrapper.__name__ = fun.__name__
-    return wrapper
-
-
-def check(*argv):
     if len(argv) > 2:
-        global DURATION_RANDOM_MIN, DURATION_RANDOM_MAX
         DURATION_RANDOM_MIN, DURATION_RANDOM_MAX = int(argv[1]), int(argv[2])
     print("Wait: ({}, {})".format(DURATION_RANDOM_MIN, DURATION_RANDOM_MAX))
 
