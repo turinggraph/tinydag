@@ -8,6 +8,8 @@ from graphviz import Digraph
 import json
 import logging
 import sys
+import threading
+
 
 # logging.basicConfig(
 #     level=logging.DEBUG,  # 控制台打印的日志级别
@@ -17,6 +19,23 @@ import sys
 #     format="%(asctime)s - %(pathname)s[line:%(lineno)d] - %(levelname)s: %(message)s"
 #     # 日志格式
 # )
+
+class customJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        try:
+            try:
+                if isinstance(obj, dict):
+                    obj = list(obj.items())
+                if len(obj) > 10:
+                    obj = obj[:10]
+                return json.JSONEncoder.default(self, obj)
+            except TypeError:
+                try:
+                    return json.dumps(vars(obj), cls=customJSONEncoder)
+                except TypeError:
+                    return json.dumps(list(obj), cls=customJSONEncoder)
+        except:
+            return "None"  # json.JSONEncoder.default(self, type(obj))
 
 
 class Logger:
@@ -37,7 +56,7 @@ class Logger:
         assert len(_type) > 0
         message.update({"type": _type})
         # print(json.dumps(message))
-        self.logger.info(json.dumps(message))
+        self.logger.info(json.dumps(message, cls=customJSONEncoder))
 
 
 logger = Logger()
@@ -121,7 +140,7 @@ class MessageGateway(object):
             self.consumes = []
 
     def register(
-        self, products: List[Message] = [], consumes: List[Message] = []
+            self, products: List[Message] = [], consumes: List[Message] = []
     ):
         for pm in products:
             record = self.router[pm.name]
@@ -225,14 +244,14 @@ class TDigraph(Digraph):
         )
 
     def subgraph(
-        self,
-        graph=None,
-        name=None,
-        comment=None,
-        graph_attr=None,
-        node_attr=None,
-        edge_attr=None,
-        body=None,
+            self,
+            graph=None,
+            name=None,
+            comment=None,
+            graph_attr=None,
+            node_attr=None,
+            edge_attr=None,
+            body=None,
     ):
         self._subgraphs.append(graph)
         # pdb.set_trace()
@@ -258,7 +277,6 @@ class TDigraph(Digraph):
 
 class GraphVizMixin(object):
     def visualize(self, graph=None):
-
         return graph
         pass
 
@@ -346,21 +364,27 @@ class Task(GraphVizMixin):
         #         print("Execute Daemon")
         #         print(args, kwargs)
         # STATE: Running
-        logger.log("UpdateTaskState", {"id": _id, "state": "wait"})
-        _args, _kwargs = Task.args_values(*args), Task.kwargs_values(**kwargs)
-        logger.log("UpdateTaskState", {"id": _id, "state": "Running"})
-        stime = time.time()
-        result = func(*_args, **_kwargs)
-        logger.log(
-            "UpdateTaskState",
-            {
-                "result": result,
-                "id": _id,
-                "state": "Success",
-                "delta": "%.3f" % (time.time() - stime),
-            },
-        )
-        message.put(result)
+        try:
+            logger.log("UpdateTaskState", {"id": _id, "state": "wait"})
+            _args, _kwargs = Task.args_values(*args), Task.kwargs_values(**kwargs)
+            logger.log("UpdateTaskState", {"id": _id, "state": "Running"})
+            stime = time.time()
+            result = func(*_args, **_kwargs)
+            logger.log(
+                "UpdateTaskState",
+                {
+                    "result": result,
+                    "id": _id,
+                    "state": "Success",
+                    "delta": "%.3f" % (time.time() - stime),
+                },
+            )
+            message.put(result)
+        except Exception as e:
+            print(f"Exception in execution...{func}")
+            print(e)
+            print("_args:", *_args)
+            print("_kwargs:", **_kwargs)
 
         # STATE: Return result
         return result
@@ -551,8 +575,8 @@ class DAG(Task):
                     str(self) + product_message_name,
                 )
                 for (
-                    name,
-                    var,
+                        name,
+                        var,
                 ) in product_task.variables_placeholder():  # TODO(ugly)
                     # print((
                     #     str(var) + var.consume(), str(product_task) + product_task.name, type(product_task), product_task.name, name
@@ -594,42 +618,29 @@ class DAG(Task):
         pass
 
 
-import threading
-import time
-import random
+def check(argv):
+    import random, time
+    DURATION_RANDOM_MIN = 1
+    DURATION_RANDOM_MAX = 2
 
-DURATION_RANDOM_MIN = 1
-DURATION_RANDOM_MAX = 2
+    def wait(fun, duration=None):
+        if duration is None:
+            duration = random.randint(DURATION_RANDOM_MIN, DURATION_RANDOM_MAX)
 
-def wait(fun, duration=None):
-    if duration is None:
-        duration = random.randint(DURATION_RANDOM_MIN, DURATION_RANDOM_MAX)
+        def wrapper(*args, **kwargs):
+            time.sleep(duration)
+            return fun(*args, **kwargs)
 
-    def wrapper(*args, **kwargs):
-        time.sleep(duration)
-        return fun(*args, **kwargs)
+        wrapper.__name__ = fun.__name__
+        return wrapper
 
-    wrapper.__name__ = fun.__name__
-    return wrapper
-
-
-"""
-TODO:
-1. 语法检查
-2. 死锁状态预先检测 * 
-3. 内嵌层级过高检测 
-4. 中间变量多次引用检测 * cache return [x], 上下文如果不一致还是会存在问题, 如果上下文不一致, 使用auto-clone模式
-6. 进程池复用
-7. 非主干路径忽略
-"""
-if __name__ == "__main__":
-    if len(sys.argv) > 2:
-        DURATION_RANDOM_MIN, DURATION_RANDOM_MAX = int(sys.argv[1]), int(sys.argv[2])
+    if len(argv) > 2:
+        DURATION_RANDOM_MIN, DURATION_RANDOM_MAX = int(argv[1]), int(argv[2])
     print("Wait: ({}, {})".format(DURATION_RANDOM_MIN, DURATION_RANDOM_MAX))
-        
+
     from operator import add, sub, mul, truediv
     # (1 + 20) * (12 + (1+20) )
-    processpool = ProcessPoolExecutor() 
+    processpool = ProcessPoolExecutor()
     subdag = DAG(
         {
             "elements": MultiProcessTask(
@@ -650,13 +661,50 @@ if __name__ == "__main__":
     )(a=20, b=3, c=10)
 
     # dag.visualize().render("test.json", view=False, format="json0")
-#     dag.visualize().render("aa.dot", view=False, format="dot")
-#     open("t3.json", "w").write(
-#         json.dumps(dag.visualize().json())
-#     )
+    #     dag.visualize().render("aa.dot", view=False, format="dot")
+    #     open("t3.json", "w").write(
+    #         json.dumps(dag.visualize().json())
+    #     )
     logger.log("InitSchema", dag.visualize().json())
     with ThreadPoolExecutor(20) as pool:
         print(dag.execute(pool).get())
     # with ProcessPoolExecutor() as processpool:
     #     with ThreadPoolExecutor(20) as threadpool:
     #         print(MultiProcessTask(processpool, add, [(i, i+2) for i in range(20)]).execute(threadpool).get())
+
+
+def check_custom_class():
+    class A:
+        def __init__(self):
+            self.a = 0
+
+        def adding(self):
+            self.a += 1
+            return self
+
+    instanceA = A()
+    dagg = DAG(
+        {
+            "step1": Task(A.adding, "$initval"),
+            "step2": EndTask(A.adding, "$step1"),
+        }
+    )(initval=instanceA)
+    logger.log("InitSchema", dagg.visualize().json())
+    with ThreadPoolExecutor(20) as poool:
+        print(dagg.execute(poool).get().a)
+
+
+"""
+TODO:
+1. 语法检查
+2. 死锁状态预先检测 * 
+3. 内嵌层级过高检测 
+4. 中间变量多次引用检测 * cache return [x], 上下文如果不一致还是会存在问题, 如果上下文不一致, 使用auto-clone模式
+6. 进程池复用
+7. 非主干路径忽略
+"""
+if __name__ == "__main__":
+    if len(sys.argv) > 2:
+        check(sys.argv)
+
+    check_custom_class()
