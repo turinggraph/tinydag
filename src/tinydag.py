@@ -23,9 +23,19 @@ import threading
 class customJSONEncoder(json.JSONEncoder):
     def default(self, obj):
         try:
-            return json.dumps(obj)
-        except TypeError:
-            return json.dumps(vars(obj))
+            try:
+                if isinstance(obj, dict):
+                    obj = list(obj.items())
+                if len(obj) > 10:
+                    obj = obj[:10]
+                return json.JSONEncoder.default(self, obj)
+            except TypeError:
+                try:
+                    return json.dumps(vars(obj), cls=customJSONEncoder)
+                except TypeError:
+                    return json.dumps(list(obj), cls=customJSONEncoder)
+        except:
+            return "None"  # json.JSONEncoder.default(self, type(obj))
 
 
 class Logger:
@@ -354,21 +364,27 @@ class Task(GraphVizMixin):
         #         print("Execute Daemon")
         #         print(args, kwargs)
         # STATE: Running
-        logger.log("UpdateTaskState", {"id": _id, "state": "wait"})
-        _args, _kwargs = Task.args_values(*args), Task.kwargs_values(**kwargs)
-        logger.log("UpdateTaskState", {"id": _id, "state": "Running"})
-        stime = time.time()
-        result = func(*_args, **_kwargs)
-        logger.log(
-            "UpdateTaskState",
-            {
-                "result": result,
-                "id": _id,
-                "state": "Success",
-                "delta": "%.3f" % (time.time() - stime),
-            },
-        )
-        message.put(result)
+        try:
+            logger.log("UpdateTaskState", {"id": _id, "state": "wait"})
+            _args, _kwargs = Task.args_values(*args), Task.kwargs_values(**kwargs)
+            logger.log("UpdateTaskState", {"id": _id, "state": "Running"})
+            stime = time.time()
+            result = func(*_args, **_kwargs)
+            logger.log(
+                "UpdateTaskState",
+                {
+                    "result": result,
+                    "id": _id,
+                    "state": "Success",
+                    "delta": "%.3f" % (time.time() - stime),
+                },
+            )
+            message.put(result)
+        except Exception as e:
+            print(f"Exception in execution...{func}")
+            print(e)
+            print("_args:", *_args)
+            print("_kwargs:", **_kwargs)
 
         # STATE: Return result
         return result
